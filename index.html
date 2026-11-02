@@ -162,13 +162,18 @@ function gemExplain(status, data){
   return 'A Google hibát jelzett (' + status + '): ' + (msg || 'ismeretlen hiba');
 }
 async function gemEnsureModels(key, force){
-  if(!force){ try{ const c=JSON.parse(store.get('hm_models')||'[]'); if(c.length) return c; }catch(e){} }
-  const res = await gemListModels(key);
-  if(!res.ok) throw {gem:true, status:res.status, data:res.data};
-  const c = gemCandidates(res.data.models);
-  if(!c.length) throw {gem:true, status:404, data:{}};
-  store.set('hm_models', JSON.stringify(c));
-  return c;
+  // Mindig friss listát kér (olcsó, gyors hívás); csak hálózati hiba esetén használja a mentettet.
+  try{
+    const res = await gemListModels(key);
+    if(res.ok){
+      const c = gemCandidates(res.data.models);
+      if(c.length){ store.set('hm_models', JSON.stringify(c)); return c; }
+    } else if(res.status===400 || res.status===401 || res.status===403){
+      throw {gem:true, status:res.status, data:res.data};
+    }
+  }catch(e){ if(e && e.gem) throw e; }
+  try{ const c=JSON.parse(store.get('hm_models')||'[]'); if(c.length) return c; }catch(e){}
+  throw {gem:true, status:404, data:{}};
 }
 // Kép kicsinyítése: a telefonos fotó 5-10 MB, ez túl lassú és hibákat okoz. 1024 px-es JPEG bőven elég az étel felismeréséhez.
 function shrinkImage(file, maxSide=1024, quality=0.8){
@@ -191,7 +196,7 @@ function shrinkImage(file, maxSide=1024, quality=0.8){
 // ---------- Frissítés-értesítés ----------
 // Új kiadásnál csak az APP_VERSION értékét kell megnövelni (pl. '3'), a vevők pedig értesítést kapnak.
 // A licenckód és az API-kulcs a böngésző tárolójában marad, a frissítés ezekhez nem nyúl.
-const APP_VERSION = '5';
+const APP_VERSION = '6';
 async function checkForUpdate(){
   try{
     const r = await fetch(location.pathname + '?v=' + Date.now(), {cache:'no-store'});
@@ -531,9 +536,9 @@ Válaszolj KIZÁRÓLAG a következő JSON formátumban, más szöveg nélkül:
     const t0 = Date.now();
     const tick = setInterval(()=>{ if(state.status) setStatus(state.status.replace(/ · \d+ mp$/,'') + ' · ' + Math.round((Date.now()-t0)/1000) + ' mp'); }, 1000);
     try{
-      for(let i=0; i<models.length && tried<3; i++){
+      for(let i=0; i<models.length && tried<4; i++){
         tried++;
-        setStatus(`Próbálkozás ${tried}/3 · ${models[i]}`);
+        setStatus(`Próbálkozás ${tried}/4 · ${models[i]}`);
         const ta = Date.now();
         try{ ({r, d:data} = await call(models[i])); }
         catch(e){ last = {status:0}; log.push(`${models[i]}: nincs válasz (${Math.round((Date.now()-ta)/1000)} mp)`); continue; }
@@ -548,7 +553,7 @@ Válaszolj KIZÁRÓLAG a következő JSON formátumban, más szöveg nélkül:
         break;
       }
     } finally { clearInterval(tick); }
-    state.errDetail = log.join(' | ');
+    state.errDetail = log.join(' | ') + (models.length? ' || lista: ' + models.slice(0,6).join(', ') : '');
     if(!r || !r.ok){
       state.error = (last && last.status===0)
         ? 'A Google most nem válaszolt időben. Próbáld újra egy perc múlva (kisebb kép vagy kevesebb hozzávaló is segíthet).'
