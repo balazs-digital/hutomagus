@@ -30,6 +30,16 @@ header h1 span{color:var(--paprika);}
 .gear{background:none;border:none;font-size:20px;cursor:pointer;opacity:.6;}
 main{flex:1;padding:0 20px 40px;}
 
+/* ---- Telepítés ---- */
+.install-banner{background:var(--plate);border-radius:16px;padding:14px 16px;margin-bottom:18px;display:flex;align-items:center;gap:12px;}
+.install-banner .txt{flex:1;font-size:14px;line-height:1.4;}
+.install-banner .txt b{display:block;font-size:15px;margin-bottom:2px;}
+.install-banner button{white-space:nowrap;background:var(--paprika);color:#fff;border:none;border-radius:10px;padding:9px 14px;font-family:'Fredoka',sans-serif;font-weight:600;font-size:14px;cursor:pointer;}
+.installed-badge{display:inline-flex;align-items:center;gap:6px;background:var(--herb);color:#fff;font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px;}
+.ios-steps{background:var(--plate);border-radius:16px;padding:14px 16px;margin-bottom:18px;font-size:14px;line-height:1.6;}
+.ios-steps b{display:block;margin-bottom:4px;}
+.ios-steps .close{float:right;background:none;border:none;font-size:14px;color:#8a7260;cursor:pointer;}
+
 /* ---- Wizard ---- */
 .wizard{display:flex;flex-direction:column;gap:16px;padding-top:10px;}
 .wizard h2{font-family:'Lora',serif;font-style:italic;font-weight:600;font-size:24px;margin:0 0 4px;}
@@ -127,7 +137,68 @@ let state = {
   loading: false,
   error: '',
   tmpLicense:'', tmpKey:'', keyTestMsg:'', keyTestOk:false,
+  showIosSteps: false,
 };
+
+// ---------- Telepítés (PWA) ----------
+let deferredInstallPrompt = null;
+function isStandalone(){
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+function isIOS(){
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+window.addEventListener('beforeinstallprompt', (e)=>{
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  render();
+});
+window.addEventListener('appinstalled', ()=>{
+  deferredInstallPrompt = null;
+  render();
+});
+
+function installBanner(){
+  if(isStandalone()){
+    return h(`<div class="install-banner"><div class="installed-badge">✅ Telepítve a telefonra</div></div>`);
+  }
+  if(deferredInstallPrompt){
+    const el = h(`
+      <div class="install-banner">
+        <div class="txt"><b>Tedd ki a kezdőképernyőre</b>Egy koppintással mindig kéznél lesz.</div>
+        <button>Telepítés</button>
+      </div>`);
+    el.querySelector('button').onclick = async ()=>{
+      deferredInstallPrompt.prompt();
+      await deferredInstallPrompt.userChoice;
+      deferredInstallPrompt = null;
+      render();
+    };
+    return el;
+  }
+  if(isIOS()){
+    if(state.showIosSteps){
+      const el = h(`
+        <div class="ios-steps">
+          <button class="close">✕</button>
+          <b>Így teheted ki a kezdőképernyőre:</b>
+          1. Koppints a Megosztás gombra (⬆️) lent<br>
+          2. Görgess le, és válaszd: „Kezdőképernyőhöz adás”<br>
+          3. Koppints: „Hozzáadás”
+        </div>`);
+      el.querySelector('.close').onclick = ()=>{ state.showIosSteps=false; render(); };
+      return el;
+    }
+    const el = h(`
+      <div class="install-banner">
+        <div class="txt"><b>Tedd ki a kezdőképernyőre</b>Egy koppintással mindig kéznél lesz.</div>
+        <button>Mutasd, hogyan</button>
+      </div>`);
+    el.querySelector('button').onclick = ()=>{ state.showIosSteps=true; render(); };
+    return el;
+  }
+  return null;
+}
 
 function render(){
   app.innerHTML = '';
@@ -179,11 +250,12 @@ function viewApiKey(){
           <h2>Már csak egy lépés</h2>
           <p>Az AI, ami a recepteket kitalálja, ingyenes — de kell hozzá egy saját kulcs. Ez egyszer kell, utána minden megy magától.</p>
           <ol class="howto">
-            <li>Nyisd meg: <a class="link" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">aistudio.google.com</a></li>
+            <li>Nyisd meg: <a class="link" href="https://aistudio.google.com/app/apikey?hl=hu" target="_blank" rel="noopener">aistudio.google.com</a></li>
             <li>Jelentkezz be a Google-fiókoddal</li>
             <li>Kattints: <b>Create API key</b></li>
             <li>Másold ide az alábbi mezőbe</li>
           </ol>
+          <p style="font-size:13px;color:#8a7260;">Ha a Google oldala esetleg nem magyarul jönne be, az nem baj — a gombok ugyanott vannak, csak kövesd a fenti sorrendet.</p>
           <input type="password" id="key" placeholder="Illeszd be ide a kulcsot">
           <div id="keyMsg"></div>
           <button class="btn ghost" id="testBtn">Kulcs tesztelése</button>
@@ -237,6 +309,9 @@ function viewHome(){
     }
   };
   const main = el.querySelector('#homeMain');
+
+  const banner = installBanner();
+  if(banner) main.appendChild(banner);
 
   if(state.loading){ main.appendChild(viewLoading()); return el; }
   if(state.recipe){ main.appendChild(viewRecipe()); return el; }
