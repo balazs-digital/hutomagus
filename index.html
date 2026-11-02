@@ -130,7 +130,7 @@ function isValidLicense(code){
 }
 
 // ---------- Gemini API segédfüggvények ----------
-const GEM_TIMEOUT = 25000;
+const GEM_TIMEOUT = 40000;
 const GEM_API = 'https://generativelanguage.googleapis.com/v1beta';
 async function gemListModels(key){
   const r = await fetch(`${GEM_API}/models?pageSize=1000&key=${encodeURIComponent(key)}`);
@@ -144,10 +144,10 @@ function gemCandidates(models){
     .map(m=>String(m.name||'').replace(/^models\//,''))
     .filter(n=>/^gemini-/.test(n) && /flash/.test(n) &&
       !/(preview|exp|tts|image|live|audio|thinking|robotics|computer|embedding|customtools|-\d{3}$)/.test(n));
-  const score = n=>{ const v=(n.match(/gemini-(\d+(?:\.\d+)?)/)||[0,0])[1]; return parseFloat(v)*10 + (/lite/.test(n)?0:1); };
+  // Gyors (lite) modellek előre: a recepthez nem kell nagy "gondolkodó" modell. Az alias (-latest) a végére kerül.
+  const score = n=>{ const v=parseFloat((n.match(/gemini-(\d+(?:\.\d+)?)/)||[0,0])[1]);
+    return (/lite/.test(n)?1000:0) + (/latest/.test(n)?-500:0) + v*10; };
   names.sort((a,b)=>score(b)-score(a));
-  const i = names.indexOf('gemini-flash-latest');
-  if(i>0){ names.splice(i,1); names.unshift('gemini-flash-latest'); }
   return names;
 }
 function gemPickModel(models){ return gemCandidates(models)[0] || ''; }
@@ -191,7 +191,7 @@ function shrinkImage(file, maxSide=1024, quality=0.8){
 // ---------- Frissítés-értesítés ----------
 // Új kiadásnál csak az APP_VERSION értékét kell megnövelni (pl. '3'), a vevők pedig értesítést kapnak.
 // A licenckód és az API-kulcs a böngésző tárolójában marad, a frissítés ezekhez nem nyúl.
-const APP_VERSION = '4';
+const APP_VERSION = '5';
 async function checkForUpdate(){
   try{
     const r = await fetch(location.pathname + '?v=' + Date.now(), {cache:'no-store'});
@@ -500,17 +500,30 @@ Válaszolj KIZÁRÓLAG a következő JSON formátumban, más szöveg nélkül:
 {"title":"recept neve","description":"1-2 mondatos csábító leírás","time":"kb. 20 perc","servings":"4 adag","tool":"serpenyő / sütő / szendvicssütő / tűzhely - amelyik kell","ingredients":["hozzávaló mennyiséggel", "..."],"steps":["1. lépés", "2. lépés", "..."]}`});
 
   try{
-    const call = async (model)=>{
+    const thinkingFor = (model)=>{
+      if(/gemini-2\.5-flash$/.test(model)) return {thinkingBudget:0};
+      if(/gemini-3|latest/.test(model)) return {thinkingLevel:'low'};
+      return null;
+    };
+    const rawCall = async (model, withThinking)=>{
       const ctl = new AbortController();
       const timer = setTimeout(()=>ctl.abort(), GEM_TIMEOUT);
       try{
+        const gc = {responseMimeType:'application/json'};
+        const th = withThinking ? thinkingFor(model) : null;
+        if(th) gc.thinkingConfig = th;
         const r = await fetch(`${GEM_API}/models/${model}:generateContent?key=${encodeURIComponent(key)}`,{
           method:'POST', headers:{'Content-Type':'application/json'}, signal:ctl.signal,
-          body: JSON.stringify({contents:[{parts}], generationConfig:{responseMimeType:'application/json'}})
+          body: JSON.stringify({contents:[{parts}], generationConfig:gc})
         });
         let d = {}; try{ d = await r.json(); }catch(e){}
         return {r, d};
       } finally { clearTimeout(timer); }
+    };
+    const call = async (model)=>{
+      const res = await rawCall(model, true);
+      if(res.r.status===400 && thinkingFor(model)) return await rawCall(model, false); // ha a modell nem ismeri a gondolkodás-beállítást
+      return res;
     };
     let models = await gemEnsureModels(key, false);
     let r, data, last=null, tried=0, refreshed=false;
