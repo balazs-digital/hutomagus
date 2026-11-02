@@ -98,6 +98,13 @@ a.link{color:var(--paprika-dark);font-weight:600;}
 .card ol{margin:0;padding-left:20px;line-height:1.9;}
 .again{margin-top:4px;}
 .error{background:#FBDFD6;color:var(--paprika-dark);padding:14px 16px;border-radius:14px;font-size:14px;line-height:1.5;margin-bottom:14px;}
+.list-title{font-weight:700;font-size:15px;margin:4px 0 8px;}
+.list-title span{font-weight:500;font-size:12px;color:#9A8370;}
+.idea{background:#fff;border-radius:18px;padding:16px 18px;margin-bottom:12px;box-shadow:0 6px 18px rgba(58,36,24,.07);cursor:pointer;border:2px solid transparent;}
+.idea:active{border-color:var(--paprika);}
+.idea-t{font-family:'Lora',serif;font-weight:600;font-size:19px;margin-bottom:4px;}
+.idea-d{color:#6B5443;font-size:14px;line-height:1.45;margin-bottom:8px;}
+.idea-m{font-size:13px;font-weight:600;color:var(--paprika-dark);}
 footer.settings-link{text-align:center;padding:10px 0 30px;}
 footer.settings-link a{color:#9A8370;font-size:13px;text-decoration:underline;cursor:pointer;}
 </style>
@@ -196,7 +203,7 @@ function shrinkImage(file, maxSide=1024, quality=0.8){
 // ---------- Frissítés-értesítés ----------
 // Új kiadásnál csak az APP_VERSION értékét kell megnövelni (pl. '3'), a vevők pedig értesítést kapnak.
 // A licenckód és az API-kulcs a böngésző tárolójában marad, a frissítés ezekhez nem nyúl.
-const APP_VERSION = '6';
+const APP_VERSION = '7';
 async function checkForUpdate(){
   try{
     const r = await fetch(location.pathname + '?v=' + Date.now(), {cache:'no-store'});
@@ -229,7 +236,7 @@ let state = {
   recipe: null,
   loading: false,
   error: '',
-  tmpLicense:'', tmpKey:'', tmpModel:'', status:'', errDetail:'', keyTestMsg:'', keyTestOk:false,
+  tmpLicense:'', tmpKey:'', tmpModel:'', status:'', errDetail:'', loadText:'', ideas:null, keyTestMsg:'', keyTestOk:false,
   showIosSteps: false, updateAvail:'',
 };
 
@@ -391,6 +398,125 @@ function viewApiKey(){
   return el;
 }
 
+// ---------- AI-hívás (közös): modellváltás, időkorlát, újrapróbálkozás ----------
+async function gemJSON(parts){
+  const key = store.get('hm_apikey');
+  const thinkingFor = (model)=>{
+    if(/gemini-2\.5-flash$/.test(model)) return {thinkingBudget:0};
+    if(/gemini-3|latest/.test(model)) return {thinkingLevel:'low'};
+    return null;
+  };
+  const rawCall = async (model, withThinking)=>{
+    const ctl = new AbortController();
+    const timer = setTimeout(()=>ctl.abort(), GEM_TIMEOUT);
+    try{
+      const gc = {responseMimeType:'application/json'};
+      const th = withThinking ? thinkingFor(model) : null;
+      if(th) gc.thinkingConfig = th;
+      const r = await fetch(`${GEM_API}/models/${model}:generateContent?key=${encodeURIComponent(key)}`,{
+        method:'POST', headers:{'Content-Type':'application/json'}, signal:ctl.signal,
+        body: JSON.stringify({contents:[{parts}], generationConfig:gc})
+      });
+      let d = {}; try{ d = await r.json(); }catch(e){}
+      return {r, d};
+    } finally { clearTimeout(timer); }
+  };
+  const call = async (model)=>{
+    const res = await rawCall(model, true);
+    if(res.r.status===400 && thinkingFor(model)) return await rawCall(model, false);
+    return res;
+  };
+  let models;
+  try{ models = await gemEnsureModels(key, false); }
+  catch(e){ throw {msg: e && e.gem ? gemExplain(e.status, e.data) : 'Nem sikerült elérni a Google-t.', detail:''}; }
+  let r, data, last=null, tried=0, refreshed=false;
+  const log = [];
+  const t0 = Date.now();
+  const tick = setInterval(()=>{ if(state.status) setStatus(state.status.replace(/ · \d+ mp$/,'') + ' · ' + Math.round((Date.now()-t0)/1000) + ' mp'); }, 1000);
+  try{
+    for(let i=0; i<models.length && tried<4; i++){
+      tried++;
+      setStatus(`Próbálkozás ${tried}/4 · ${models[i]}`);
+      const ta = Date.now();
+      try{ ({r, d:data} = await call(models[i])); }
+      catch(e){ last = {status:0}; log.push(`${models[i]}: nincs válasz (${Math.round((Date.now()-ta)/1000)} mp)`); continue; }
+      if(r.ok) break;
+      last = {status:r.status, data};
+      log.push(`${models[i]}: ${r.status} ${(data&&data.error&&data.error.message||'').slice(0,160)} (${Math.round((Date.now()-ta)/1000)} mp)`);
+      if(r.status===404 && !refreshed){ refreshed=true; models = await gemEnsureModels(key, true); i=-1; tried=0; continue; }
+      if([500,502,503,504,404].includes(r.status)){ await new Promise(res=>setTimeout(res, 1500)); continue; }
+      break;
+    }
+  } finally { clearInterval(tick); }
+  const detail = log.join(' | ') + (models.length ? ' || lista: ' + models.slice(0,6).join(', ') : '');
+  if(!r || !r.ok){
+    throw {detail, msg: (last && last.status===0)
+      ? 'A Google most nem válaszolt időben. Próbáld újra egy perc múlva.'
+      : gemExplain(last ? last.status : 0, last ? last.data : {})};
+  }
+  try{
+    let txt = data.candidates[0].content.parts[0].text.trim();
+    txt = txt.replace(/^```json\s*|```$/g,'').trim();
+    return JSON.parse(txt);
+  }catch(e){
+    throw {detail: detail + ' | feldolgozási hiba: ' + (e && e.message), msg:'A válasz nem volt értelmezhető. Próbáld újra.'};
+  }
+}
+// Futtat egy AI-feladatot töltőképernyővel; hiba esetén kiírja a hibát, és null-t ad vissza.
+async function runAI(loadText, parts){
+  state.loading = true; state.error=''; state.errDetail=''; state.loadText=loadText; state.status='Kapcsolódás a Google-hez…'; render();
+  try{
+    const out = await gemJSON(parts);
+    state.loading = false; return out;
+  }catch(e){
+    state.loading = false;
+    state.error = (e && e.msg) || 'Valami elakadt. Próbáld újra.';
+    state.errDetail = (e && e.detail) || (e && e.message) || '';
+    render(); return null;
+  }
+}
+function errBox(){
+  if(!state.error) return null;
+  return h(`<div class="error">${esc(state.error)}${state.errDetail?`<div style="margin-top:8px;font-size:11px;opacity:.8;word-break:break-word;">Műszaki részlet (v${APP_VERSION}): ${esc(state.errDetail)}</div>`:''}</div>`);
+}
+
+// ---------- 1. lépés: fotó → felismert alapanyagok ----------
+async function detectIngredients(){
+  const out = await runAI('A Hűtő Mágus most nézi át, mi lapul a polcokon…', [
+    {inline_data:{mime_type:state.image.mime, data:state.image.data}},
+    {text:`Nézd meg ezt a fotót, és sorold fel a rajta látható ÉTELEKET és ALAPANYAGOKAT (hűtő vagy kamra tartalma).
+Szabályok: csak ehető dolgokat írj; ne találgass, ha valami nem látszik biztosan; magyarul, rövid, alapalakban (pl. "tojás", "tejföl", "sárgarépa"); ugyanazt ne ismételd; legfeljebb 40 tétel.
+Válaszolj KIZÁRÓLAG ebben a JSON formátumban: {"items":["tojás","tej"]}`}]);
+  if(!out) return;
+  const items = Array.isArray(out.items) ? out.items.map(x=>String(x).trim()).filter(Boolean) : [];
+  const have = new Set(state.ingredients.map(x=>x.toLowerCase()));
+  items.forEach(x=>{ if(!have.has(x.toLowerCase())){ state.ingredients.push(x); have.add(x.toLowerCase()); } });
+  if(!items.length){ state.error = 'Nem ismertem fel ételt a képen. Fotózz közelebbről, vagy írd be kézzel a hozzávalókat.'; }
+  render();
+}
+
+// ---------- 2. lépés: hozzávalók → receptötletek ----------
+async function suggestIdeas(){
+  const out = await runAI('Receptötleteken gondolkodom…', [{text:`Ezek az alapanyagok vannak otthon: ${state.ingredients.join(', ')}.
+Adj 5 különböző, változatos receptötletet, amit egy háziasszony egyszerűen elkészíthet. Főként ezekből dolgozz; alap konyhai dolgokat (só, bors, olaj, víz, liszt, cukor) feltételezhetsz.
+Válaszolj KIZÁRÓLAG ebben a JSON formátumban: {"ideas":[{"title":"étel neve","description":"1 mondatos csábító leírás","time":"kb. 20 perc"}]}`}]);
+  if(!out) return;
+  const ideas = Array.isArray(out.ideas) ? out.ideas.filter(x=>x && x.title) : [];
+  if(!ideas.length){ state.error='Most nem sikerült ötletet találni. Próbáld újra.'; render(); return; }
+  state.ideas = ideas; render();
+}
+
+// ---------- 3. lépés: kiválasztott ötlet → teljes recept ----------
+async function makeRecipe(idea){
+  const out = await runAI('Elkészítem a receptet…', [{text:`Írd meg a teljes receptet ehhez: "${idea.title}" (${idea.description||''}).
+Rendelkezésre álló alapanyagok: ${state.ingredients.join(', ')}. Alap konyhai dolgokat (só, bors, olaj, víz, liszt, cukor) feltételezhetsz. Egyszerű, barátságos, lépésről lépésre.
+Válaszolj KIZÁRÓLAG ebben a JSON formátumban:
+{"title":"recept neve","description":"1-2 mondatos csábító leírás","time":"kb. 20 perc","servings":"4 adag","tool":"serpenyő / sütő / szendvicssütő / tűzhely - amelyik kell","ingredients":["hozzávaló mennyiséggel"],"steps":["1. lépés","2. lépés"]}`}]);
+  if(!out) return;
+  if(!out.title || !Array.isArray(out.ingredients) || !Array.isArray(out.steps)){ state.error='A recept hiányos lett. Próbáld újra.'; render(); return; }
+  state.recipe = out; render();
+}
+
 // ---------- Főképernyő ----------
 function viewHome(){
   const el = h(`
@@ -413,8 +539,9 @@ function viewHome(){
 
   if(state.loading){ main.appendChild(viewLoading()); return el; }
   if(state.recipe){ main.appendChild(viewRecipe()); return el; }
+  if(state.ideas){ main.appendChild(viewIdeas()); return el; }
 
-  if(state.error){ main.appendChild(h(`<div class="error">${state.error}${state.errDetail?`<div style="margin-top:8px;font-size:11px;opacity:.8;word-break:break-word;">Műszaki részlet (v${APP_VERSION}): ${esc(state.errDetail)}</div>`:''}</div>`)); }
+  const eb = errBox(); if(eb) main.appendChild(eb);
 
   if(state.image){
     main.appendChild(h(`<img class="thumb" src="data:${state.image.mime};base64,${state.image.data}">`));
@@ -425,49 +552,69 @@ function viewHome(){
       <button class="shutter" id="camBtn">
         <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h3l2-2h6l2 2h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.4" stroke="#fff" stroke-width="1.8"/></svg>
       </button>
-      <div class="shutter-label">Fotózd le a hűtőd</div>
+      <div class="shutter-label">${state.ingredients.length ? 'Még egy fotó (hűtő vagy kamra)' : 'Fotózd le a hűtőt vagy a kamrát'}</div>
       <input type="file" id="camInput" accept="image/*" capture="environment" style="display:none">
     </div>`));
   el.querySelector('#camBtn').onclick = ()=> el.querySelector('#camInput').click();
   el.querySelector('#camInput').onchange = (e)=>{
     const f = e.target.files[0]; if(!f) return;
-    shrinkImage(f).then(img=>{ state.image = img; render(); })
-      .catch(()=>{ state.error='Ezt a fotót nem sikerült betölteni. Próbálj egy másikat.'; render(); });
+    shrinkImage(f).then(img=>{ state.image = img; state.error=''; detectIngredients(); })
+      .catch(()=>{ state.error='Ezt a fotót nem sikerült betölteni. Próbálj egy másikat.'; state.errDetail=''; render(); });
   };
+
+  if(state.ingredients.length){
+    main.appendChild(h(`<div class="list-title">Ezeket találtam <span>(koppints az ✕-re a törléshez)</span></div>`));
+  }
+  const chips = h('<div class="chips"></div>');
+  state.ingredients.forEach((ing,i)=>{
+    const chip = h(`<div class="chip">${esc(ing)}<button>✕</button></div>`);
+    chip.querySelector('button').onclick = ()=>{ state.ingredients.splice(i,1); render(); };
+    chips.appendChild(chip);
+  });
+  if(state.ingredients.length) main.appendChild(chips);
 
   main.appendChild(h(`
     <div class="add-row">
-      <input type="text" id="ingInput" placeholder="pl. tojás, amit a férjed hozott haza">
+      <input type="text" id="ingInput" placeholder="${state.ingredients.length ? 'Mi hiányzik? Írd be, és koppints a +-ra' : 'vagy írd be kézzel, pl. tojás'}">
       <button id="ingAdd">+</button>
     </div>`));
   const ingInput = el.querySelector('#ingInput');
   const addIng = ()=>{
     const v = ingInput.value.trim(); if(!v) return;
-    state.ingredients.push(v); ingInput.value=''; render();
+    v.split(',').map(x=>x.trim()).filter(Boolean).forEach(x=>{
+      if(!state.ingredients.some(y=>y.toLowerCase()===x.toLowerCase())) state.ingredients.push(x);
+    });
+    ingInput.value=''; render();
   };
   el.querySelector('#ingAdd').onclick = addIng;
   ingInput.onkeydown = (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addIng(); } };
 
-  if(state.ingredients.length){
-    const chips = h('<div class="chips"></div>');
-    state.ingredients.forEach((ing,i)=>{
-      const chip = h(`<div class="chip">${ing}<button>✕</button></div>`);
-      chip.querySelector('button').onclick = ()=>{ state.ingredients.splice(i,1); render(); };
-      chips.appendChild(chip);
-    });
-    main.appendChild(chips);
-  }
-
-  const canGo = state.image || state.ingredients.length;
-  const goBtn = h(`<button class="btn cook-btn" ${canGo?'':'disabled'}>Recept varázslás ✨</button>`);
-  goBtn.onclick = generateRecipe;
+  const canGo = state.ingredients.length > 0;
+  const goBtn = h(`<button class="btn cook-btn" ${canGo?'':'disabled'}>Receptötletek ✨</button>`);
+  goBtn.onclick = suggestIdeas;
   main.appendChild(goBtn);
 
   return el;
 }
 
 function viewLoading(){
-  return h(`<div class="loading"><div class="spin"></div><p>A Hűtő Mágus most nézi át, mi lapul a polcokon…</p><p id="loadMsg" style="font-size:12px;color:#9A8370;">${state.status||''}</p></div>`);
+  return h(`<div class="loading"><div class="spin"></div><p>${esc(state.loadText||'Egy pillanat…')}</p><p id="loadMsg" style="font-size:12px;color:#9A8370;">${esc(state.status||'')}</p></div>`);
+}
+
+function viewIdeas(){
+  const wrap = h(`<div></div>`);
+  const eb = errBox(); if(eb) wrap.appendChild(eb);
+  wrap.appendChild(h(`<div class="list-title" style="margin-top:6px;">Ezeket főzhetnéd <span>(koppints egyre a teljes receptért)</span></div>`));
+  state.ideas.forEach(idea=>{
+    const c = h(`<div class="idea"><div class="idea-t">${esc(idea.title)}</div><div class="idea-d">${esc(idea.description||'')}</div><div class="idea-m">⏱ ${esc(idea.time||'')}</div></div>`);
+    c.onclick = ()=> makeRecipe(idea);
+    wrap.appendChild(c);
+  });
+  const more = h(`<button class="btn ghost again">Más ötleteket kérek</button>`);
+  more.onclick = suggestIdeas; wrap.appendChild(more);
+  const back = h(`<button class="btn ghost again" style="margin-top:10px;">← Vissza a hozzávalókhoz</button>`);
+  back.onclick = ()=>{ state.ideas=null; state.error=''; render(); }; wrap.appendChild(back);
+  return wrap;
 }
 
 function viewRecipe(){
@@ -475,99 +622,25 @@ function viewRecipe(){
   const wrap = h(`<div></div>`);
   wrap.appendChild(h(`
     <div class="card">
-      <h2>${r.title}</h2>
-      <p class="desc">${r.description}</p>
+      <h2>${esc(r.title)}</h2>
+      <p class="desc">${esc(r.description)}</p>
       <div class="meta-row">
-        <div class="meta">⏱ ${r.time}</div>
-        <div class="meta">🍽 ${r.servings}</div>
-        <div class="meta">🔥 ${r.tool}</div>
+        <div class="meta">⏱ ${esc(r.time)}</div>
+        <div class="meta">🍽 ${esc(r.servings)}</div>
+        <div class="meta">🔥 ${esc(r.tool)}</div>
       </div>
       <h3>Hozzávalók</h3>
-      <ul>${r.ingredients.map(i=>`<li>${i}</li>`).join('')}</ul>
+      <ul>${r.ingredients.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>
       <h3>Elkészítés</h3>
-      <ol>${r.steps.map(s=>`<li>${s}</li>`).join('')}</ol>
+      <ol>${r.steps.map(s=>`<li>${esc(s)}</li>`).join('')}</ol>
     </div>`));
-  const again = h(`<button class="btn ghost again">Másik hűtőt fotózok</button>`);
-  again.onclick = ()=>{ state.recipe=null; state.image=null; state.ingredients=[]; render(); };
+  const back = h(`<button class="btn ghost again">← Vissza az ötletekhez</button>`);
+  back.onclick = ()=>{ state.recipe=null; state.error=''; render(); };
+  wrap.appendChild(back);
+  const again = h(`<button class="btn ghost again" style="margin-top:10px;">Új hűtő / kamra</button>`);
+  again.onclick = ()=>{ state.recipe=null; state.ideas=null; state.image=null; state.ingredients=[]; state.error=''; render(); };
   wrap.appendChild(again);
   return wrap;
-}
-
-async function generateRecipe(){
-  state.loading = true; state.error=''; state.errDetail=''; state.status='Kapcsolódás a Google-hez…'; render();
-  const key = store.get('hm_apikey');
-  const parts = [];
-  if(state.image) parts.push({inline_data:{mime_type:state.image.mime, data:state.image.data}});
-  const ingTxt = state.ingredients.length ? `A felhasználó ezeket is hozzáadta kézzel: ${state.ingredients.join(', ')}.` : '';
-  parts.push({text:`Nézd meg a hűtő fotóját, és ismerd fel a benne lévő ételeket, alapanyagokat. ${ingTxt}
-Adj egyetlen, kreatív, barátságos receptet ezekből, amit egy háziasszony egyszerűen el tud készíteni itthon.
-Válaszolj KIZÁRÓLAG a következő JSON formátumban, más szöveg nélkül:
-{"title":"recept neve","description":"1-2 mondatos csábító leírás","time":"kb. 20 perc","servings":"4 adag","tool":"serpenyő / sütő / szendvicssütő / tűzhely - amelyik kell","ingredients":["hozzávaló mennyiséggel", "..."],"steps":["1. lépés", "2. lépés", "..."]}`});
-
-  try{
-    const thinkingFor = (model)=>{
-      if(/gemini-2\.5-flash$/.test(model)) return {thinkingBudget:0};
-      if(/gemini-3|latest/.test(model)) return {thinkingLevel:'low'};
-      return null;
-    };
-    const rawCall = async (model, withThinking)=>{
-      const ctl = new AbortController();
-      const timer = setTimeout(()=>ctl.abort(), GEM_TIMEOUT);
-      try{
-        const gc = {responseMimeType:'application/json'};
-        const th = withThinking ? thinkingFor(model) : null;
-        if(th) gc.thinkingConfig = th;
-        const r = await fetch(`${GEM_API}/models/${model}:generateContent?key=${encodeURIComponent(key)}`,{
-          method:'POST', headers:{'Content-Type':'application/json'}, signal:ctl.signal,
-          body: JSON.stringify({contents:[{parts}], generationConfig:gc})
-        });
-        let d = {}; try{ d = await r.json(); }catch(e){}
-        return {r, d};
-      } finally { clearTimeout(timer); }
-    };
-    const call = async (model)=>{
-      const res = await rawCall(model, true);
-      if(res.r.status===400 && thinkingFor(model)) return await rawCall(model, false); // ha a modell nem ismeri a gondolkodás-beállítást
-      return res;
-    };
-    let models = await gemEnsureModels(key, false);
-    let r, data, last=null, tried=0, refreshed=false;
-    const log = [];
-    const t0 = Date.now();
-    const tick = setInterval(()=>{ if(state.status) setStatus(state.status.replace(/ · \d+ mp$/,'') + ' · ' + Math.round((Date.now()-t0)/1000) + ' mp'); }, 1000);
-    try{
-      for(let i=0; i<models.length && tried<4; i++){
-        tried++;
-        setStatus(`Próbálkozás ${tried}/4 · ${models[i]}`);
-        const ta = Date.now();
-        try{ ({r, d:data} = await call(models[i])); }
-        catch(e){ last = {status:0}; log.push(`${models[i]}: nincs válasz (${Math.round((Date.now()-ta)/1000)} mp)`); continue; }
-        if(r.ok) break;
-        last = {status:r.status, data};
-        log.push(`${models[i]}: ${r.status} ${(data&&data.error&&data.error.message||'').slice(0,160)} (${Math.round((Date.now()-ta)/1000)} mp)`);
-        if(r.status===404 && !refreshed){ refreshed=true; models = await gemEnsureModels(key, true); i=-1; tried=0; continue; }
-        if([500,502,503,504,404].includes(r.status)){
-          await new Promise(res=>setTimeout(res, 1500));
-          continue;
-        }
-        break;
-      }
-    } finally { clearInterval(tick); }
-    state.errDetail = log.join(' | ') + (models.length? ' || lista: ' + models.slice(0,6).join(', ') : '');
-    if(!r || !r.ok){
-      state.error = (last && last.status===0)
-        ? 'A Google most nem válaszolt időben. Próbáld újra egy perc múlva (kisebb kép vagy kevesebb hozzávaló is segíthet).'
-        : gemExplain(last ? last.status : 0, last ? last.data : {});
-      state.loading=false; render(); return;
-    }
-    let txt = data.candidates[0].content.parts[0].text.trim();
-    txt = txt.replace(/^```json\s*|```$/g,'').trim();
-    state.recipe = JSON.parse(txt);
-  }catch(e){
-    if(e && e.gem){ state.error = gemExplain(e.status, e.data); state.loading=false; render(); return; }
-    state.error = 'Valami elakadt. Próbáld újra.'; state.errDetail = 'kivétel: ' + (e && e.message ? e.message : e);
-  }
-  state.loading = false; render();
 }
 
 render();
