@@ -27,7 +27,6 @@ body{margin:0;background:var(--cream);color:var(--plum);font-family:'Nunito',san
 header{padding:22px 20px 14px;display:flex;align-items:center;justify-content:space-between;}
 header h1{font-size:22px;margin:0;}
 header h1 span{color:var(--paprika);}
-.gear{background:none;border:none;font-size:20px;cursor:pointer;opacity:.6;}
 main{flex:1;padding:0 20px 40px;}
 
 /* ---- Telepítés ---- */
@@ -98,6 +97,14 @@ a.link{color:var(--paprika-dark);font-weight:600;}
 .card ol{margin:0;padding-left:20px;line-height:1.9;}
 .again{margin-top:4px;}
 .error{background:#FBDFD6;color:var(--paprika-dark);padding:14px 16px;border-radius:14px;font-size:14px;line-height:1.5;margin-bottom:14px;}
+.intro{line-height:1.55;color:#6B5443;margin:4px 0 0;}
+.thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;}
+.th{position:relative;width:76px;height:76px;border-radius:12px;overflow:hidden;background:var(--plate);}
+.th img{width:100%;height:100%;object-fit:cover;display:block;}
+.th button{position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;border:none;background:rgba(58,36,24,.7);color:#fff;font-size:12px;line-height:1;cursor:pointer;}
+.hint{font-size:13px;color:#6B5443;margin-bottom:14px;}
+.used{background:var(--plate);border-radius:14px;padding:10px 14px;font-size:13px;line-height:1.5;margin-bottom:10px;color:#6B5443;}
+.note{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 14px;font-size:12.5px;line-height:1.55;color:#6B5443;margin-top:22px;}
 .list-title{font-weight:700;font-size:15px;margin:4px 0 8px;}
 .list-title span{font-weight:500;font-size:12px;color:#9A8370;}
 .idea{background:#fff;border-radius:18px;padding:16px 18px;margin-bottom:12px;box-shadow:0 6px 18px rgba(58,36,24,.07);cursor:pointer;border:2px solid transparent;}
@@ -203,7 +210,7 @@ function shrinkImage(file, maxSide=1024, quality=0.8){
 // ---------- Frissítés-értesítés ----------
 // Új kiadásnál csak az APP_VERSION értékét kell megnövelni (pl. '3'), a vevők pedig értesítést kapnak.
 // A licenckód és az API-kulcs a böngésző tárolójában marad, a frissítés ezekhez nem nyúl.
-const APP_VERSION = '7';
+const APP_VERSION = '8';
 async function checkForUpdate(){
   try{
     const r = await fetch(location.pathname + '?v=' + Date.now(), {cache:'no-store'});
@@ -236,7 +243,7 @@ let state = {
   recipe: null,
   loading: false,
   error: '',
-  tmpLicense:'', tmpKey:'', tmpModel:'', status:'', errDetail:'', loadText:'', ideas:null, keyTestMsg:'', keyTestOk:false,
+  tmpLicense:'', tmpKey:'', tmpModel:'', status:'', errDetail:'', loadText:'', ideas:null, photos:[], prevTitles:[], keyTestMsg:'', keyTestOk:false,
   showIosSteps: false, updateAvail:'',
 };
 
@@ -350,6 +357,7 @@ function viewApiKey(){
           <div class="step-dots"><div class="dot on"></div><div class="dot on"></div></div>
           <h2>Már csak egy lépés</h2>
           <p>Az AI, ami a recepteket kitalálja, ingyenes — de kell hozzá egy saját kulcs. Ez egyszer kell, utána minden megy magától.</p>
+          <p style="font-size:13px;">Fontos: a Google <b>ingyenes</b> AI-ját használjuk, nem a legerősebb (fizetős) változatot. Jól működik, de néha téved — ezért a fotók alapján készült listát te is átnézheted és javíthatod.</p>
           <ol class="howto">
             <li>Nyisd meg: <a class="link" href="https://aistudio.google.com/app/apikey?hl=hu" target="_blank" rel="noopener">aistudio.google.com</a></li>
             <li>Jelentkezz be a Google-fiókoddal</li>
@@ -480,30 +488,40 @@ function errBox(){
   return h(`<div class="error">${esc(state.error)}${state.errDetail?`<div style="margin-top:8px;font-size:11px;opacity:.8;word-break:break-word;">Műszaki részlet (v${APP_VERSION}): ${esc(state.errDetail)}</div>`:''}</div>`);
 }
 
-// ---------- 1. lépés: fotó → felismert alapanyagok ----------
+// ---------- 1. lépés: fotók → felismert alapanyagok (csak a "Receptötletek" gombra indul) ----------
 async function detectIngredients(){
-  const out = await runAI('A Hűtő Mágus most nézi át, mi lapul a polcokon…', [
-    {inline_data:{mime_type:state.image.mime, data:state.image.data}},
-    {text:`Nézd meg ezt a fotót, és sorold fel a rajta látható ÉTELEKET és ALAPANYAGOKAT (hűtő vagy kamra tartalma).
-Szabályok: csak ehető dolgokat írj; ne találgass, ha valami nem látszik biztosan; magyarul, rövid, alapalakban (pl. "tojás", "tejföl", "sárgarépa"); ugyanazt ne ismételd; legfeljebb 40 tétel.
+  const imgs = state.photos.map(im=>({inline_data:{mime_type:im.mime, data:im.data}}));
+  const out = await runAI(state.photos.length>1 ? 'A Hűtő Mágus most nézi át a fotóidat…' : 'A Hűtő Mágus most nézi át, mi lapul a polcokon…', [
+    ...imgs,
+    {text:`Nézd meg ${imgs.length>1?'ezeket a fotókat':'ezt a fotót'}, és sorold fel a rajtuk látható ÉTELEKET és ALAPANYAGOKAT (hűtő vagy kamra tartalma).
+Szabályok: csak ehető dolgokat írj; ne találgass, ha valami nem látszik biztosan; magyarul, rövid, alapalakban (pl. "tojás", "tejföl", "sárgarépa"); ugyanazt ne ismételd (a fotók között sem); legfeljebb 50 tétel.
 Válaszolj KIZÁRÓLAG ebben a JSON formátumban: {"items":["tojás","tej"]}`}]);
-  if(!out) return;
+  if(!out) return false;                      // hiba: a fotók megmaradnak, újra lehet próbálni
   const items = Array.isArray(out.items) ? out.items.map(x=>String(x).trim()).filter(Boolean) : [];
   const have = new Set(state.ingredients.map(x=>x.toLowerCase()));
   items.forEach(x=>{ if(!have.has(x.toLowerCase())){ state.ingredients.push(x); have.add(x.toLowerCase()); } });
-  if(!items.length){ state.error = 'Nem ismertem fel ételt a képen. Fotózz közelebbről, vagy írd be kézzel a hozzávalókat.'; }
-  render();
+  state.photos = [];                          // feldolgozva, a lista tartalmazza őket
+  if(!items.length && !state.ingredients.length){
+    state.error = 'Nem ismertem fel ételt a fotókon. Fotózz közelebbről, vagy írd be kézzel a hozzávalókat.'; state.errDetail=''; render(); return false;
+  }
+  return true;
+}
+async function startIdeas(){
+  state.prevTitles = [];
+  if(state.photos.length){ const ok = await detectIngredients(); if(!ok) return; }
+  await suggestIdeas();
 }
 
 // ---------- 2. lépés: hozzávalók → receptötletek ----------
 async function suggestIdeas(){
+  const avoid = state.prevTitles.length ? `\nEzeket az ötleteket már láttuk, ezeket NE ismételd: ${state.prevTitles.join('; ')}.` : '';
   const out = await runAI('Receptötleteken gondolkodom…', [{text:`Ezek az alapanyagok vannak otthon: ${state.ingredients.join(', ')}.
-Adj 5 különböző, változatos receptötletet, amit egy háziasszony egyszerűen elkészíthet. Főként ezekből dolgozz; alap konyhai dolgokat (só, bors, olaj, víz, liszt, cukor) feltételezhetsz.
+Adj 5 különböző, változatos receptötletet, amit egy háziasszony egyszerűen elkészíthet. Főként ezekből dolgozz; alap konyhai dolgokat (só, bors, olaj, víz, liszt, cukor) feltételezhetsz.${avoid}
 Válaszolj KIZÁRÓLAG ebben a JSON formátumban: {"ideas":[{"title":"étel neve","description":"1 mondatos csábító leírás","time":"kb. 20 perc"}]}`}]);
   if(!out) return;
   const ideas = Array.isArray(out.ideas) ? out.ideas.filter(x=>x && x.title) : [];
   if(!ideas.length){ state.error='Most nem sikerült ötletet találni. Próbáld újra.'; render(); return; }
-  state.ideas = ideas; render();
+  state.ideas = ideas; ideas.forEach(i=>state.prevTitles.push(i.title)); render();
 }
 
 // ---------- 3. lépés: kiválasztott ötlet → teljes recept ----------
@@ -521,11 +539,10 @@ Válaszolj KIZÁRÓLAG ebben a JSON formátumban:
 function viewHome(){
   const el = h(`
     <div class="app">
-      <header><h1>Hűtő <span>Mágus</span></h1><button class="gear" id="gearBtn">⚙️</button></header>
+      <header><h1>Hűtő <span>Mágus</span></h1></header>
       <main id="homeMain"></main>
-      <footer class="settings-link"><a id="resetLink">Kulcsok újra beállítása</a> · <a href="aszf.html">ÁSZF</a><div style="margin-top:8px;font-size:12px;color:#B3A08C;">Verzió: v${APP_VERSION}</div></footer>
+      <footer class="settings-link"><a id="resetLink">Kulcsok újra beállítása</a><div style="margin-top:8px;font-size:12px;color:#B3A08C;">Verzió: v${APP_VERSION}</div></footer>
     </div>`);
-  el.querySelector('#gearBtn').onclick = ()=>{ document.getElementById('resetLink').scrollIntoView({behavior:'smooth'}); };
   el.querySelector('#resetLink').onclick = ()=>{
     if(confirm('Biztosan töröljük a mentett kulcsokat?')){
       store.set('hm_license',''); store.set('hm_apikey',''); store.set('hm_models','');
@@ -543,8 +560,9 @@ function viewHome(){
 
   const eb = errBox(); if(eb) main.appendChild(eb);
 
-  if(state.image){
-    main.appendChild(h(`<img class="thumb" src="data:${state.image.mime};base64,${state.image.data}">`));
+  const hasAny = state.photos.length || state.ingredients.length;
+  if(!hasAny){
+    main.appendChild(h(`<p class="intro">Fotózd le a hűtőt vagy a kamrát — annyi fotót, amennyit csak szeretnél —, és kézzel is hozzáadhatsz dolgokat (pl. ami a spájzban van). Ha kész vagy, koppints a <b>Receptötletek</b> gombra.</p>`));
   }
 
   main.appendChild(h(`
@@ -552,30 +570,42 @@ function viewHome(){
       <button class="shutter" id="camBtn">
         <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h3l2-2h6l2 2h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.4" stroke="#fff" stroke-width="1.8"/></svg>
       </button>
-      <div class="shutter-label">${state.ingredients.length ? 'Még egy fotó (hűtő vagy kamra)' : 'Fotózd le a hűtőt vagy a kamrát'}</div>
+      <div class="shutter-label">${hasAny ? 'Még egy fotó (hűtő, kamra, spájz…)' : 'Fotózd le a hűtőt vagy a kamrát'}</div>
       <input type="file" id="camInput" accept="image/*" capture="environment" style="display:none">
     </div>`));
   el.querySelector('#camBtn').onclick = ()=> el.querySelector('#camInput').click();
   el.querySelector('#camInput').onchange = (e)=>{
     const f = e.target.files[0]; if(!f) return;
-    shrinkImage(f).then(img=>{ state.image = img; state.error=''; detectIngredients(); })
+    if(state.photos.length >= 6){ state.error='Egyszerre legfeljebb 6 fotót tudok feldolgozni. Koppints a Receptötletek gombra, utána még hozzáadhatsz újakat.'; state.errDetail=''; render(); return; }
+    shrinkImage(f).then(img=>{ state.photos.push(img); state.error=''; render(); })
       .catch(()=>{ state.error='Ezt a fotót nem sikerült betölteni. Próbálj egy másikat.'; state.errDetail=''; render(); });
   };
 
-  if(state.ingredients.length){
-    main.appendChild(h(`<div class="list-title">Ezeket találtam <span>(koppints az ✕-re a törléshez)</span></div>`));
+  if(state.photos.length){
+    const row = h('<div class="thumbs"></div>');
+    state.photos.forEach((im,i)=>{
+      const t = h(`<div class="th"><img src="data:${im.mime};base64,${im.data}"><button aria-label="Fotó törlése">✕</button></div>`);
+      t.querySelector('button').onclick = ()=>{ state.photos.splice(i,1); render(); };
+      row.appendChild(t);
+    });
+    main.appendChild(row);
+    main.appendChild(h(`<div class="hint">${state.photos.length} fotó vár feldolgozásra — a Receptötletek gombra nézem át őket.</div>`));
   }
-  const chips = h('<div class="chips"></div>');
-  state.ingredients.forEach((ing,i)=>{
-    const chip = h(`<div class="chip">${esc(ing)}<button>✕</button></div>`);
-    chip.querySelector('button').onclick = ()=>{ state.ingredients.splice(i,1); render(); };
-    chips.appendChild(chip);
-  });
-  if(state.ingredients.length) main.appendChild(chips);
+
+  if(state.ingredients.length){
+    main.appendChild(h(`<div class="list-title">Hozzávalók <span>(koppints az ✕-re a törléshez)</span></div>`));
+    const chips = h('<div class="chips"></div>');
+    state.ingredients.forEach((ing,i)=>{
+      const chip = h(`<div class="chip">${esc(ing)}<button>✕</button></div>`);
+      chip.querySelector('button').onclick = ()=>{ state.ingredients.splice(i,1); render(); };
+      chips.appendChild(chip);
+    });
+    main.appendChild(chips);
+  }
 
   main.appendChild(h(`
     <div class="add-row">
-      <input type="text" id="ingInput" placeholder="${state.ingredients.length ? 'Mi hiányzik? Írd be, és koppints a +-ra' : 'vagy írd be kézzel, pl. tojás'}">
+      <input type="text" id="ingInput" placeholder="${hasAny ? 'Mi hiányzik? Írd be, és koppints a +-ra' : 'vagy írd be kézzel, pl. krumpli, tojás'}">
       <button id="ingAdd">+</button>
     </div>`));
   const ingInput = el.querySelector('#ingInput');
@@ -589,10 +619,12 @@ function viewHome(){
   el.querySelector('#ingAdd').onclick = addIng;
   ingInput.onkeydown = (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addIng(); } };
 
-  const canGo = state.ingredients.length > 0;
-  const goBtn = h(`<button class="btn cook-btn" ${canGo?'':'disabled'}>Receptötletek ✨</button>`);
-  goBtn.onclick = suggestIdeas;
+  const canGo = hasAny;
+  const goBtn = h(`<button class="btn cook-btn" ${canGo?'':'disabled'}>${state.prevTitles.length ? 'Új receptötletek ✨' : 'Receptötletek ✨'}</button>`);
+  goBtn.onclick = startIdeas;
   main.appendChild(goBtn);
+
+  main.appendChild(h(`<div class="note"><b>Jó tudni:</b> a Hűtő Mágus a Google <b>ingyenes</b> AI-ját használja, nem a legerősebbet — az fizetős lenne, és akkor a használat sem lehetne ingyenes. Jól használható, de néha téved vagy kihagy valamit a fotókról. Ezért nézd át a listát, javítsd ki, és a receptet főzés előtt ellenőrizd (különösen allergia esetén).</div>`));
 
   return el;
 }
@@ -604,15 +636,16 @@ function viewLoading(){
 function viewIdeas(){
   const wrap = h(`<div></div>`);
   const eb = errBox(); if(eb) wrap.appendChild(eb);
+  wrap.appendChild(h(`<div class="used"><b>Ezekből:</b> ${esc(state.ingredients.join(', '))}</div>`));
   wrap.appendChild(h(`<div class="list-title" style="margin-top:6px;">Ezeket főzhetnéd <span>(koppints egyre a teljes receptért)</span></div>`));
   state.ideas.forEach(idea=>{
     const c = h(`<div class="idea"><div class="idea-t">${esc(idea.title)}</div><div class="idea-d">${esc(idea.description||'')}</div><div class="idea-m">⏱ ${esc(idea.time||'')}</div></div>`);
     c.onclick = ()=> makeRecipe(idea);
     wrap.appendChild(c);
   });
-  const more = h(`<button class="btn ghost again">Más ötleteket kérek</button>`);
+  const more = h(`<button class="btn ghost again">Más ötleteket kérek ugyanezekből</button>`);
   more.onclick = suggestIdeas; wrap.appendChild(more);
-  const back = h(`<button class="btn ghost again" style="margin-top:10px;">← Vissza a hozzávalókhoz</button>`);
+  const back = h(`<button class="btn ghost again" style="margin-top:10px;">＋ Hozzávalók bővítése / szerkesztése</button>`);
   back.onclick = ()=>{ state.ideas=null; state.error=''; render(); }; wrap.appendChild(back);
   return wrap;
 }
@@ -638,7 +671,7 @@ function viewRecipe(){
   back.onclick = ()=>{ state.recipe=null; state.error=''; render(); };
   wrap.appendChild(back);
   const again = h(`<button class="btn ghost again" style="margin-top:10px;">Új hűtő / kamra</button>`);
-  again.onclick = ()=>{ state.recipe=null; state.ideas=null; state.image=null; state.ingredients=[]; state.error=''; render(); };
+  again.onclick = ()=>{ state.recipe=null; state.ideas=null; state.photos=[]; state.prevTitles=[]; state.ingredients=[]; state.error=''; render(); };
   wrap.appendChild(again);
   return wrap;
 }
