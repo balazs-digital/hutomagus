@@ -130,42 +130,89 @@ function isValidLicense(code){
 }
 
 // ---------- Gemini API segédfüggvények ----------
+const GEM_TIMEOUT = 40000;
 const GEM_API = 'https://generativelanguage.googleapis.com/v1beta';
 async function gemListModels(key){
   const r = await fetch(`${GEM_API}/models?pageSize=1000&key=${encodeURIComponent(key)}`);
   let data = {}; try{ data = await r.json(); }catch(e){}
   return {ok:r.ok, status:r.status, data};
 }
-// A Google élő modell-listájából választ egy stabil "flash" modellt, így a lejárt modellnevek nem törik el az appot.
-function gemPickModel(models){
+// A Google élő modell-listájából választ stabil "flash" modelleket (sorrendben), így a lejárt modellnevek nem törik el az appot.
+function gemCandidates(models){
   const names = (models||[])
     .filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent'))
     .map(m=>String(m.name||'').replace(/^models\//,''))
     .filter(n=>/^gemini-/.test(n) && /flash/.test(n) &&
       !/(preview|exp|tts|image|live|audio|thinking|robotics|computer|embedding|customtools|-\d{3}$)/.test(n));
-  if(names.includes('gemini-flash-latest')) return 'gemini-flash-latest';
   const score = n=>{ const v=(n.match(/gemini-(\d+(?:\.\d+)?)/)||[0,0])[1]; return parseFloat(v)*10 + (/lite/.test(n)?0:1); };
   names.sort((a,b)=>score(b)-score(a));
-  return names[0] || '';
+  const i = names.indexOf('gemini-flash-latest');
+  if(i>0){ names.splice(i,1); names.unshift('gemini-flash-latest'); }
+  return names;
 }
+function gemPickModel(models){ return gemCandidates(models)[0] || ''; }
 function gemExplain(status, data){
   const msg = (data && data.error && data.error.message) || '';
   const st  = (data && data.error && data.error.status) || '';
   if(/API key not valid|API_KEY_INVALID|API key expired/i.test(msg) || status===401) return 'A Google szerint ez a kulcs érvénytelen. Másold be újra az AI Studióból, és ügyelj rá, hogy ne maradjon szóköz a végén.';
   if(status===403) return 'A kulcsot a Google elutasította (hozzáférés megtagadva). Hozz létre egy új kulcsot az AI Studióban.';
   if(status===429 || st==='RESOURCE_EXHAUSTED' || /quota/i.test(msg)) return 'Elfogyott az ingyenes keret. Próbáld meg később vagy holnap újra.';
+  if(status===503 || /overloaded|high demand|UNAVAILABLE/i.test(msg+st)) return 'A Google AI-szervere most túlterhelt (ez náluk átmeneti). Várj egy-két percet, és próbáld újra.';
   if(status===404) return 'A használt AI-modell nem érhető el. Nyisd meg a kulcs-beállítást, és teszteld újra a kulcsot.';
   return 'A Google hibát jelzett (' + status + '): ' + (msg || 'ismeretlen hiba');
 }
-async function gemEnsureModel(key){
-  let m = store.get('hm_model');
-  if(m) return m;
+async function gemEnsureModels(key, force){
+  if(!force){ try{ const c=JSON.parse(store.get('hm_models')||'[]'); if(c.length) return c; }catch(e){} }
   const res = await gemListModels(key);
   if(!res.ok) throw {gem:true, status:res.status, data:res.data};
-  m = gemPickModel(res.data.models);
-  if(!m) throw {gem:true, status:404, data:{}};
-  store.set('hm_model', m);
-  return m;
+  const c = gemCandidates(res.data.models);
+  if(!c.length) throw {gem:true, status:404, data:{}};
+  store.set('hm_models', JSON.stringify(c));
+  return c;
+}
+// Kép kicsinyítése: a telefonos fotó 5-10 MB, ez túl lassú és hibákat okoz. 1024 px-es JPEG bőven elég az étel felismeréséhez.
+function shrinkImage(file, maxSide=1024, quality=0.8){
+  return new Promise((resolve,reject)=>{
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = ()=>{
+      const sc = Math.min(1, maxSide/Math.max(img.width,img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width*sc); c.height = Math.round(img.height*sc);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      URL.revokeObjectURL(url);
+      resolve({mime:'image/jpeg', data:c.toDataURL('image/jpeg',quality).split(',')[1]});
+    };
+    img.onerror = ()=>{ URL.revokeObjectURL(url); reject(new Error('img')); };
+    img.src = url;
+  });
+}
+
+// ---------- Frissítés-értesítés ----------
+// Új kiadásnál csak az APP_VERSION értékét kell megnövelni (pl. '3'), a vevők pedig értesítést kapnak.
+// A licenckód és az API-kulcs a böngésző tárolójában marad, a frissítés ezekhez nem nyúl.
+const APP_VERSION = '2';
+async function checkForUpdate(){
+  try{
+    const r = await fetch(location.pathname + '?v=' + Date.now(), {cache:'no-store'});
+    if(!r.ok) return;
+    const m = (await r.text()).match(/const APP_VERSION = '([^']*)'/);
+    if(m && m[1] !== APP_VERSION && !state.updateAvail){ state.updateAvail = m[1]; render(); }
+  }catch(e){ /* offline: nem baj */ }
+}
+async function applyUpdate(){
+  try{ if(window.caches){ const ks = await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); } }catch(e){}
+  try{ await fetch(location.pathname, {cache:'reload'}); }catch(e){}
+  location.reload();
+}
+function updateBanner(){
+  const el = h(`
+    <div class="install-banner" style="margin:12px 20px 0;">
+      <div class="txt"><b>Új frissítés érhető el 🎉</b>Verzió: v${APP_VERSION} → <b style="display:inline;color:var(--paprika-dark)">v${state.updateAvail}</b><br>A kulcsaid megmaradnak.</div>
+      <button>Frissítés</button>
+    </div>`);
+  el.querySelector('button').onclick = applyUpdate;
+  return el;
 }
 
 let state = {
@@ -176,7 +223,7 @@ let state = {
   loading: false,
   error: '',
   tmpLicense:'', tmpKey:'', tmpModel:'', keyTestMsg:'', keyTestOk:false,
-  showIosSteps: false,
+  showIosSteps: false, updateAvail:'',
 };
 
 // ---------- Telepítés (PWA) ----------
@@ -244,6 +291,7 @@ function render(){
   if(state.screen==='license') app.appendChild(viewLicense());
   else if(state.screen==='apikey') app.appendChild(viewApiKey());
   else app.appendChild(viewHome());
+  if(state.updateAvail) app.prepend(updateBanner());
 }
 
 function h(html){ const t=document.createElement('template'); t.innerHTML=html.trim(); return t.content.firstChild; }
@@ -320,7 +368,7 @@ function viewApiKey(){
         msg.innerHTML = '<div class="bad-badge">A kulcs érvényes, de nem találtam hozzá használható AI-modellt.</div>';
         return;
       }
-      state.tmpModel = model;
+      state.tmpModel = JSON.stringify(gemCandidates(res.data.models));
       msg.innerHTML = '<div class="ok-badge">✅ A kulcs működik!</div>';
       goBtn.disabled = false;
       state.tmpKey = k;
@@ -330,7 +378,7 @@ function viewApiKey(){
   };
   goBtn.onclick = ()=>{
     store.set('hm_apikey', state.tmpKey);
-    store.set('hm_model', state.tmpModel||'');
+    store.set('hm_models', state.tmpModel||'');
     state.screen='home'; render();
   };
   return el;
@@ -342,12 +390,12 @@ function viewHome(){
     <div class="app">
       <header><h1>Hűtő <span>Mágus</span></h1><button class="gear" id="gearBtn">⚙️</button></header>
       <main id="homeMain"></main>
-      <footer class="settings-link"><a id="resetLink">Kulcsok újra beállítása</a> · <a href="aszf.html">ÁSZF</a></footer>
+      <footer class="settings-link"><a id="resetLink">Kulcsok újra beállítása</a> · <a href="aszf.html">ÁSZF</a><div style="margin-top:8px;font-size:12px;color:#B3A08C;">Verzió: v${APP_VERSION}</div></footer>
     </div>`);
   el.querySelector('#gearBtn').onclick = ()=>{ document.getElementById('resetLink').scrollIntoView({behavior:'smooth'}); };
   el.querySelector('#resetLink').onclick = ()=>{
     if(confirm('Biztosan töröljük a mentett kulcsokat?')){
-      store.set('hm_license',''); store.set('hm_apikey',''); store.set('hm_model','');
+      store.set('hm_license',''); store.set('hm_apikey',''); store.set('hm_models','');
       state = {...state, screen:'license'}; render();
     }
   };
@@ -376,9 +424,8 @@ function viewHome(){
   el.querySelector('#camBtn').onclick = ()=> el.querySelector('#camInput').click();
   el.querySelector('#camInput').onchange = (e)=>{
     const f = e.target.files[0]; if(!f) return;
-    const reader = new FileReader();
-    reader.onload = ()=>{ state.image = {mime:f.type, data:reader.result.split(',')[1]}; render(); };
-    reader.readAsDataURL(f);
+    shrinkImage(f).then(img=>{ state.image = img; render(); })
+      .catch(()=>{ state.error='Ezt a fotót nem sikerült betölteni. Próbálj egy másikat.'; render(); });
   };
 
   main.appendChild(h(`
@@ -452,22 +499,36 @@ Válaszolj KIZÁRÓLAG a következő JSON formátumban, más szöveg nélkül:
 
   try{
     const call = async (model)=>{
-      const r = await fetch(`${GEM_API}/models/${model}:generateContent?key=${encodeURIComponent(key)}`,{
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({contents:[{parts}], generationConfig:{responseMimeType:'application/json'}})
-      });
-      let d = {}; try{ d = await r.json(); }catch(e){}
-      return {r, d};
+      const ctl = new AbortController();
+      const timer = setTimeout(()=>ctl.abort(), GEM_TIMEOUT);
+      try{
+        const r = await fetch(`${GEM_API}/models/${model}:generateContent?key=${encodeURIComponent(key)}`,{
+          method:'POST', headers:{'Content-Type':'application/json'}, signal:ctl.signal,
+          body: JSON.stringify({contents:[{parts}], generationConfig:{responseMimeType:'application/json'}})
+        });
+        let d = {}; try{ d = await r.json(); }catch(e){}
+        return {r, d};
+      } finally { clearTimeout(timer); }
     };
-    let model = await gemEnsureModel(key);
-    let {r, d:data} = await call(model);
-    if(r.status===404){ // a mentett modell közben megszűnt: új választás
-      store.set('hm_model','');
-      model = await gemEnsureModel(key);
-      ({r, d:data} = await call(model));
+    let models = await gemEnsureModels(key, false);
+    let r, data, last=null, tried=0, refreshed=false;
+    for(let i=0; i<models.length && tried<4; i++){
+      tried++;
+      try{ ({r, d:data} = await call(models[i])); }
+      catch(e){ last = {status:0}; continue; }           // időtúllépés: következő modell
+      if(r.ok) break;
+      last = {status:r.status, data};
+      if(r.status===404 && !refreshed){ refreshed=true; models = await gemEnsureModels(key, true); i=-1; tried=0; continue; }
+      if([500,502,503,504,404].includes(r.status)){       // túlterhelés/hiba: kis várakozás, következő modell
+        await new Promise(res=>setTimeout(res, 1500));
+        continue;
+      }
+      break;                                             // kulcshiba, kvóta stb.: nincs értelme újrapróbálni
     }
-    if(!r.ok){
-      state.error = gemExplain(r.status, data);
+    if(!r || !r.ok){
+      state.error = (last && last.status===0)
+        ? 'A Google most nem válaszolt időben. Próbáld újra egy perc múlva (kisebb kép vagy kevesebb hozzávaló is segíthet).'
+        : gemExplain(last ? last.status : 0, last ? last.data : {});
       state.loading=false; render(); return;
     }
     let txt = data.candidates[0].content.parts[0].text.trim();
@@ -481,6 +542,8 @@ Válaszolj KIZÁRÓLAG a következő JSON formátumban, más szöveg nélkül:
 }
 
 render();
+checkForUpdate();
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') checkForUpdate(); });
 
 if('serviceWorker' in navigator){
   // nincs külön service worker fájl, de a manifest önmagában is telepíthetővé teszi
