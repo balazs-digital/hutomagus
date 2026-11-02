@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hűtő Mágus</title>
+<meta name="description" content="Fotózd le a hűtőd, és kapj egy gusztusos receptet pillanatok alatt.">
+<meta name="theme-color" content="#E05638">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hűtő Mágus">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Lora:ital,wght@0,500;0,600;1,500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paprika:#E05638; --paprika-dark:#B8402A; --cream:#FBF1E4; --plate:#FDE3C8;
+  --plum:#3A2418; --herb:#6B8E4E; --herb-dark:#4F6B38; --line:#EBD7B8;
+  color-scheme: light;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--cream);color:var(--plum);font-family:'Fredoka',sans-serif;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);}
+.app{max-width:480px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;}
+header{padding:22px 20px 14px;display:flex;align-items:center;justify-content:space-between;}
+header h1{font-size:22px;margin:0;}
+header h1 span{color:var(--paprika);}
+.gear{background:none;border:none;font-size:20px;cursor:pointer;opacity:.6;}
+main{flex:1;padding:0 20px 40px;}
+
+/* ---- Wizard ---- */
+.wizard{display:flex;flex-direction:column;gap:16px;padding-top:10px;}
+.wizard h2{font-family:'Lora',serif;font-style:italic;font-weight:600;font-size:24px;margin:0 0 4px;}
+.wizard p{line-height:1.5;margin:0;color:#6B5443;}
+.step-dots{display:flex;gap:6px;margin-bottom:6px;}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--line);}
+.dot.on{background:var(--paprika);}
+input[type=text],input[type=password]{
+  width:100%;padding:14px 16px;border-radius:14px;border:2px solid var(--line);
+  font-family:'Fredoka',sans-serif;font-size:16px;background:#fff;color:var(--plum);}
+input:focus{outline:none;border-color:var(--paprika);}
+.btn{display:block;width:100%;padding:15px;border-radius:14px;border:none;
+  font-family:'Fredoka',sans-serif;font-weight:600;font-size:17px;cursor:pointer;
+  background:var(--paprika);color:#fff;box-shadow:0 6px 16px rgba(224,86,56,.3);}
+.btn:active{transform:translateY(1px);}
+.btn.ghost{background:transparent;color:var(--paprika);box-shadow:none;border:2px solid var(--paprika);}
+.btn:disabled{background:#D8C7B4;box-shadow:none;cursor:not-allowed;}
+.ok-badge{display:flex;align-items:center;gap:8px;color:var(--herb-dark);font-weight:600;font-size:14px;}
+.bad-badge{color:var(--paprika-dark);font-size:14px;font-weight:600;}
+ol.howto{padding-left:20px;margin:0;line-height:1.7;color:#6B5443;}
+ol.howto li{margin-bottom:4px;}
+a.link{color:var(--paprika-dark);font-weight:600;}
+
+/* ---- Main app ---- */
+.shutter-wrap{display:flex;flex-direction:column;align-items:center;gap:10px;margin:18px 0 22px;}
+.shutter{width:118px;height:118px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#F4805F,var(--paprika) 60%,var(--paprika-dark));
+  border:none;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 24px rgba(224,86,56,.4);cursor:pointer;}
+.shutter svg{width:46px;height:46px;}
+.shutter-label{font-size:14px;color:#6B5443;}
+.thumb{width:100%;border-radius:16px;margin-bottom:14px;max-height:160px;object-fit:cover;}
+
+.add-row{display:flex;gap:8px;margin-bottom:14px;}
+.add-row input{flex:1;}
+.add-row button{width:52px;border-radius:14px;border:none;background:var(--herb);color:#fff;font-size:22px;cursor:pointer;}
+
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px;}
+.chip{background:var(--plate);padding:8px 10px 8px 14px;border-radius:999px;display:flex;align-items:center;gap:8px;font-size:14px;}
+.chip button{border:none;background:rgba(0,0,0,.08);width:18px;height:18px;border-radius:50%;cursor:pointer;font-size:12px;line-height:1;color:var(--plum);}
+
+.cook-btn{position:sticky;bottom:16px;}
+
+/* ---- Loading ---- */
+.loading{display:flex;flex-direction:column;align-items:center;gap:14px;padding:60px 10px;text-align:center;}
+.spin{width:54px;height:54px;border-radius:50%;border:5px solid var(--line);border-top-color:var(--paprika);animation:spin 1s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.loading p{color:#6B5443;font-size:15px;}
+
+/* ---- Recipe card ---- */
+.card{background:#fff;border-radius:22px;padding:22px;box-shadow:0 10px 30px rgba(58,36,24,.08);margin-bottom:20px;}
+.card h2{font-family:'Lora',serif;font-weight:600;font-size:26px;margin:0 0 6px;line-height:1.2;}
+.card .desc{color:#6B5443;font-size:15px;line-height:1.5;margin:0 0 14px;}
+.meta-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
+.meta{background:var(--cream);border-radius:12px;padding:8px 12px;font-size:13px;font-weight:600;color:var(--plum);display:flex;gap:6px;align-items:center;}
+.card h3{font-size:15px;margin:18px 0 8px;color:var(--paprika-dark);}
+.card ul{margin:0;padding-left:18px;line-height:1.8;}
+.card ol{margin:0;padding-left:20px;line-height:1.9;}
+.again{margin-top:4px;}
+.error{background:#FBDFD6;color:var(--paprika-dark);padding:14px 16px;border-radius:14px;font-size:14px;line-height:1.5;margin-bottom:14px;}
+footer.settings-link{text-align:center;padding:10px 0 30px;}
+footer.settings-link a{color:#9A8370;font-size:13px;text-decoration:underline;cursor:pointer;}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+
+<script>
+const $ = (sel,el=document)=>el.querySelector(sel);
+const app = $('#app');
+const store = {
+  get:(k)=>{try{return localStorage.getItem(k)||'';}catch(e){return '';}},
+  set:(k,v)=>{try{localStorage.setItem(k,v);}catch(e){}},
+};
+
+// ---------- egyszerű licenckód-ellenőrzés (prototípus szint) ----------
+// Formátum: HM-XXXX-XXXX-C , ahol C egy ellenőrző karakter a 8 betű/számjegyből számolva.
+// Ez nem feltörhetetlen titkosítás, csak megakadályozza, hogy bárki random kódot írjon be,
+// és időigényessé teszi a kitalálást. Éles verzióban digitális aláírással (pl. Ed25519) érdemes kiváltani.
+function checkDigit(body){
+  let sum=0; for(const ch of body){ sum = (sum*31 + ch.charCodeAt(0)) % 36; }
+  return sum.toString(36).toUpperCase();
+}
+function isValidLicense(code){
+  code = code.trim().toUpperCase();
+  const m = code.match(/^HM-([A-Z0-9]{4})-([A-Z0-9]{4})-([A-Z0-9])$/);
+  if(!m) return false;
+  const body = m[1]+m[2];
+  return checkDigit(body) === m[3];
+}
+
+let state = {
+  screen: store.get('hm_license') && store.get('hm_apikey') ? 'home' : 'license',
+  image: null, // {mime, data}
+  ingredients: [],
+  recipe: null,
+  loading: false,
+  error: '',
+  tmpLicense:'', tmpKey:'', keyTestMsg:'', keyTestOk:false,
+};
+
+function render(){
+  app.innerHTML = '';
+  if(state.screen==='license') app.appendChild(viewLicense());
+  else if(state.screen==='apikey') app.appendChild(viewApiKey());
+  else app.appendChild(viewHome());
+}
+
+function h(html){ const t=document.createElement('template'); t.innerHTML=html.trim(); return t.content.firstChild; }
+
+// ---------- 1. képernyő: licenckód ----------
+function viewLicense(){
+  const el = h(`
+    <div class="app">
+      <header><h1>Hűtő <span>Mágus</span></h1></header>
+      <main>
+        <div class="wizard">
+          <div class="step-dots"><div class="dot on"></div><div class="dot"></div></div>
+          <h2>Üdv a konyhában!</h2>
+          <p>Add meg a vásárláskor kapott licenckódot az aktiváláshoz. A levélben találod, formátuma: HM-XXXX-XXXX-X</p>
+          <input type="text" id="lic" placeholder="HM-ABCD-1234-X" autocapitalize="characters">
+          <div id="licMsg"></div>
+          <button class="btn" id="licBtn">Aktiválás</button>
+        </div>
+      </main>
+    </div>`);
+  const input = el.querySelector('#lic');
+  const msg = el.querySelector('#licMsg');
+  el.querySelector('#licBtn').onclick = ()=>{
+    if(isValidLicense(input.value)){
+      store.set('hm_license', input.value.trim().toUpperCase());
+      state.screen = store.get('hm_apikey') ? 'home' : 'apikey';
+      render();
+    } else {
+      msg.innerHTML = '<div class="bad-badge">Ez a kód nem stimmel. Nézd meg, mindent jól írtál-e be.</div>';
+    }
+  };
+  return el;
+}
+
+// ---------- 2. képernyő: API kulcs varázsló ----------
+function viewApiKey(){
+  const el = h(`
+    <div class="app">
+      <header><h1>Hűtő <span>Mágus</span></h1></header>
+      <main>
+        <div class="wizard">
+          <div class="step-dots"><div class="dot on"></div><div class="dot on"></div></div>
+          <h2>Már csak egy lépés</h2>
+          <p>Az AI, ami a recepteket kitalálja, ingyenes — de kell hozzá egy saját kulcs. Ez egyszer kell, utána minden megy magától.</p>
+          <ol class="howto">
+            <li>Nyisd meg: <a class="link" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">aistudio.google.com</a></li>
+            <li>Jelentkezz be a Google-fiókoddal</li>
+            <li>Kattints: <b>Create API key</b></li>
+            <li>Másold ide az alábbi mezőbe</li>
+          </ol>
+          <input type="password" id="key" placeholder="Illeszd be ide a kulcsot">
+          <div id="keyMsg"></div>
+          <button class="btn ghost" id="testBtn">Kulcs tesztelése</button>
+          <button class="btn" id="goBtn" disabled>Kész, irány a konyha!</button>
+        </div>
+      </main>
+    </div>`);
+  const input = el.querySelector('#key');
+  const msg = el.querySelector('#keyMsg');
+  const goBtn = el.querySelector('#goBtn');
+  el.querySelector('#testBtn').onclick = async ()=>{
+    const k = input.value.trim();
+    if(!k){ msg.innerHTML = '<div class="bad-badge">Illeszd be a kulcsot előbb.</div>'; return; }
+    msg.innerHTML = '<div class="bad-badge">Tesztelés…</div>';
+    try{
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(k)}`,{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({contents:[{parts:[{text:'Mondj egyetlen szót: szia'}]}]})
+      });
+      if(r.ok){
+        msg.innerHTML = '<div class="ok-badge">✅ A kulcs működik!</div>';
+        goBtn.disabled = false;
+        state.tmpKey = k;
+      } else {
+        msg.innerHTML = '<div class="bad-badge">Ez a kulcs nem működik. Ellenőrizd, jól másoltad-e.</div>';
+      }
+    }catch(e){
+      msg.innerHTML = '<div class="bad-badge">Nem sikerült elérni a szervert. Ellenőrizd az internetkapcsolatot.</div>';
+    }
+  };
+  goBtn.onclick = ()=>{
+    store.set('hm_apikey', state.tmpKey);
+    state.screen='home'; render();
+  };
+  return el;
+}
+
+// ---------- Főképernyő ----------
+function viewHome(){
+  const el = h(`
+    <div class="app">
+      <header><h1>Hűtő <span>Mágus</span></h1><button class="gear" id="gearBtn">⚙️</button></header>
+      <main id="homeMain"></main>
+      <footer class="settings-link"><a id="resetLink">Kulcsok újra beállítása</a> · <a href="aszf.html">ÁSZF</a></footer>
+    </div>`);
+  el.querySelector('#gearBtn').onclick = ()=>{ document.getElementById('resetLink').scrollIntoView({behavior:'smooth'}); };
+  el.querySelector('#resetLink').onclick = ()=>{
+    if(confirm('Biztosan töröljük a mentett kulcsokat?')){
+      store.set('hm_license',''); store.set('hm_apikey','');
+      state = {...state, screen:'license'}; render();
+    }
+  };
+  const main = el.querySelector('#homeMain');
+
+  if(state.loading){ main.appendChild(viewLoading()); return el; }
+  if(state.recipe){ main.appendChild(viewRecipe()); return el; }
+
+  if(state.error){ main.appendChild(h(`<div class="error">${state.error}</div>`)); }
+
+  if(state.image){
+    main.appendChild(h(`<img class="thumb" src="data:${state.image.mime};base64,${state.image.data}">`));
+  }
+
+  main.appendChild(h(`
+    <div class="shutter-wrap">
+      <button class="shutter" id="camBtn">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h3l2-2h6l2 2h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.4" stroke="#fff" stroke-width="1.8"/></svg>
+      </button>
+      <div class="shutter-label">Fotózd le a hűtőd</div>
+      <input type="file" id="camInput" accept="image/*" capture="environment" style="display:none">
+    </div>`));
+  el.querySelector('#camBtn').onclick = ()=> el.querySelector('#camInput').click();
+  el.querySelector('#camInput').onchange = (e)=>{
+    const f = e.target.files[0]; if(!f) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{ state.image = {mime:f.type, data:reader.result.split(',')[1]}; render(); };
+    reader.readAsDataURL(f);
+  };
+
+  main.appendChild(h(`
+    <div class="add-row">
+      <input type="text" id="ingInput" placeholder="pl. tojás, amit a férjed hozott haza">
+      <button id="ingAdd">+</button>
+    </div>`));
+  const ingInput = el.querySelector('#ingInput');
+  const addIng = ()=>{
+    const v = ingInput.value.trim(); if(!v) return;
+    state.ingredients.push(v); ingInput.value=''; render();
+  };
+  el.querySelector('#ingAdd').onclick = addIng;
+  ingInput.onkeydown = (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addIng(); } };
+
+  if(state.ingredients.length){
+    const chips = h('<div class="chips"></div>');
+    state.ingredients.forEach((ing,i)=>{
+      const chip = h(`<div class="chip">${ing}<button>✕</button></div>`);
+      chip.querySelector('button').onclick = ()=>{ state.ingredients.splice(i,1); render(); };
+      chips.appendChild(chip);
+    });
+    main.appendChild(chips);
+  }
+
+  const canGo = state.image || state.ingredients.length;
+  const goBtn = h(`<button class="btn cook-btn" ${canGo?'':'disabled'}>Recept varázslás ✨</button>`);
+  goBtn.onclick = generateRecipe;
+  main.appendChild(goBtn);
+
+  return el;
+}
+
+function viewLoading(){
+  return h(`<div class="loading"><div class="spin"></div><p>A Hűtő Mágus most nézi át, mi lapul a polcokon…</p></div>`);
+}
+
+function viewRecipe(){
+  const r = state.recipe;
+  const wrap = h(`<div></div>`);
+  wrap.appendChild(h(`
+    <div class="card">
+      <h2>${r.title}</h2>
+      <p class="desc">${r.description}</p>
+      <div class="meta-row">
+        <div class="meta">⏱ ${r.time}</div>
+        <div class="meta">🍽 ${r.servings}</div>
+        <div class="meta">🔥 ${r.tool}</div>
+      </div>
+      <h3>Hozzávalók</h3>
+      <ul>${r.ingredients.map(i=>`<li>${i}</li>`).join('')}</ul>
+      <h3>Elkészítés</h3>
+      <ol>${r.steps.map(s=>`<li>${s}</li>`).join('')}</ol>
+    </div>`));
+  const again = h(`<button class="btn ghost again">Másik hűtőt fotózok</button>`);
+  again.onclick = ()=>{ state.recipe=null; state.image=null; state.ingredients=[]; render(); };
+  wrap.appendChild(again);
+  return wrap;
+}
+
+async function generateRecipe(){
+  state.loading = true; state.error=''; render();
+  const key = store.get('hm_apikey');
+  const parts = [];
+  if(state.image) parts.push({inline_data:{mime_type:state.image.mime, data:state.image.data}});
+  const ingTxt = state.ingredients.length ? `A felhasználó ezeket is hozzáadta kézzel: ${state.ingredients.join(', ')}.` : '';
+  parts.push({text:`Nézd meg a hűtő fotóját, és ismerd fel a benne lévő ételeket, alapanyagokat. ${ingTxt}
+Adj egyetlen, kreatív, barátságos receptet ezekből, amit egy háziasszony egyszerűen el tud készíteni itthon.
+Válaszolj KIZÁRÓLAG a következő JSON formátumban, más szöveg nélkül:
+{"title":"recept neve","description":"1-2 mondatos csábító leírás","time":"kb. 20 perc","servings":"4 adag","tool":"serpenyő / sütő / szendvicssütő / tűzhely - amelyik kell","ingredients":["hozzávaló mennyiséggel", "..."],"steps":["1. lépés", "2. lépés", "..."]}`});
+
+  try{
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(key)}`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({contents:[{parts}]})
+    });
+    const data = await r.json();
+    if(!r.ok){
+      state.error = data?.error?.message?.includes('quota') ?
+        'Elfogyott a mai ingyenes keret. Próbáld meg holnap újra.' :
+        'A kulcs nem fogadta el a kérést. Nézd meg az ⚙️ gombnál, jó-e a kulcsod.';
+      state.loading=false; render(); return;
+    }
+    let txt = data.candidates[0].content.parts[0].text.trim();
+    txt = txt.replace(/^```json\s*|```$/g,'').trim();
+    state.recipe = JSON.parse(txt);
+  }catch(e){
+    state.error = 'Valami elakadt. Ellenőrizd az internetkapcsolatot, és próbáld újra.';
+  }
+  state.loading = false; render();
+}
+
+render();
+
+if('serviceWorker' in navigator){
+  // nincs külön service worker fájl, de a manifest önmagában is telepíthetővé teszi
+}
+</script>
+</body>
+</html>

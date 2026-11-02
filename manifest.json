@@ -1,0 +1,15 @@
+{
+  "name": "Hűtő Mágus",
+  "short_name": "Hűtő Mágus",
+  "description": "Fotózd le a hűtőd, és kapj egy gusztusos receptet pillanatok alatt.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FBF1E4",
+  "theme_color": "#E05638",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
