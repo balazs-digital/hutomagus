@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Hűtő Mágus">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Lora:ital,wght@0,500;0,600;1,500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800&family=Lora:ital,wght@0,500;0,600;1,500&display=swap" rel="stylesheet">
 <style>
 :root{
   --paprika:#E05638; --paprika-dark:#B8402A; --cream:#FBF1E4; --plate:#FDE3C8;
@@ -21,7 +21,7 @@
   color-scheme: light;
 }
 *{box-sizing:border-box;}
-body{margin:0;background:var(--cream);color:var(--plum);font-family:'Fredoka',sans-serif;
+body{margin:0;background:var(--cream);color:var(--plum);font-family:'Nunito',sans-serif;
   padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);}
 .app{max-width:480px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;}
 header{padding:22px 20px 14px;display:flex;align-items:center;justify-content:space-between;}
@@ -34,7 +34,7 @@ main{flex:1;padding:0 20px 40px;}
 .install-banner{background:var(--plate);border-radius:16px;padding:14px 16px;margin-bottom:18px;display:flex;align-items:center;gap:12px;}
 .install-banner .txt{flex:1;font-size:14px;line-height:1.4;}
 .install-banner .txt b{display:block;font-size:15px;margin-bottom:2px;}
-.install-banner button{white-space:nowrap;background:var(--paprika);color:#fff;border:none;border-radius:10px;padding:9px 14px;font-family:'Fredoka',sans-serif;font-weight:600;font-size:14px;cursor:pointer;}
+.install-banner button{white-space:nowrap;background:var(--paprika);color:#fff;border:none;border-radius:10px;padding:9px 14px;font-family:'Nunito',sans-serif;font-weight:600;font-size:14px;cursor:pointer;}
 .installed-badge{display:inline-flex;align-items:center;gap:6px;background:var(--herb);color:#fff;font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px;}
 .ios-steps{background:var(--plate);border-radius:16px;padding:14px 16px;margin-bottom:18px;font-size:14px;line-height:1.6;}
 .ios-steps b{display:block;margin-bottom:4px;}
@@ -49,10 +49,10 @@ main{flex:1;padding:0 20px 40px;}
 .dot.on{background:var(--paprika);}
 input[type=text],input[type=password]{
   width:100%;padding:14px 16px;border-radius:14px;border:2px solid var(--line);
-  font-family:'Fredoka',sans-serif;font-size:16px;background:#fff;color:var(--plum);}
+  font-family:'Nunito',sans-serif;font-size:16px;background:#fff;color:var(--plum);}
 input:focus{outline:none;border-color:var(--paprika);}
 .btn{display:block;width:100%;padding:15px;border-radius:14px;border:none;
-  font-family:'Fredoka',sans-serif;font-weight:600;font-size:17px;cursor:pointer;
+  font-family:'Nunito',sans-serif;font-weight:600;font-size:17px;cursor:pointer;
   background:var(--paprika);color:#fff;box-shadow:0 6px 16px rgba(224,86,56,.3);}
 .btn:active{transform:translateY(1px);}
 .btn.ghost{background:transparent;color:var(--paprika);box-shadow:none;border:2px solid var(--paprika);}
@@ -130,7 +130,7 @@ function isValidLicense(code){
 }
 
 // ---------- Gemini API segédfüggvények ----------
-const GEM_TIMEOUT = 40000;
+const GEM_TIMEOUT = 25000;
 const GEM_API = 'https://generativelanguage.googleapis.com/v1beta';
 async function gemListModels(key){
   const r = await fetch(`${GEM_API}/models?pageSize=1000&key=${encodeURIComponent(key)}`);
@@ -191,7 +191,7 @@ function shrinkImage(file, maxSide=1024, quality=0.8){
 // ---------- Frissítés-értesítés ----------
 // Új kiadásnál csak az APP_VERSION értékét kell megnövelni (pl. '3'), a vevők pedig értesítést kapnak.
 // A licenckód és az API-kulcs a böngésző tárolójában marad, a frissítés ezekhez nem nyúl.
-const APP_VERSION = '2';
+const APP_VERSION = '4';
 async function checkForUpdate(){
   try{
     const r = await fetch(location.pathname + '?v=' + Date.now(), {cache:'no-store'});
@@ -215,6 +215,8 @@ function updateBanner(){
   return el;
 }
 
+function esc(t){ return String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function setStatus(t){ state.status=t; const el=document.getElementById('loadMsg'); if(el) el.textContent=t; }
 let state = {
   screen: store.get('hm_license') && store.get('hm_apikey') ? 'home' : 'license',
   image: null, // {mime, data}
@@ -222,7 +224,7 @@ let state = {
   recipe: null,
   loading: false,
   error: '',
-  tmpLicense:'', tmpKey:'', tmpModel:'', keyTestMsg:'', keyTestOk:false,
+  tmpLicense:'', tmpKey:'', tmpModel:'', status:'', errDetail:'', keyTestMsg:'', keyTestOk:false,
   showIosSteps: false, updateAvail:'',
 };
 
@@ -407,7 +409,7 @@ function viewHome(){
   if(state.loading){ main.appendChild(viewLoading()); return el; }
   if(state.recipe){ main.appendChild(viewRecipe()); return el; }
 
-  if(state.error){ main.appendChild(h(`<div class="error">${state.error}</div>`)); }
+  if(state.error){ main.appendChild(h(`<div class="error">${state.error}${state.errDetail?`<div style="margin-top:8px;font-size:11px;opacity:.8;word-break:break-word;">Műszaki részlet (v${APP_VERSION}): ${esc(state.errDetail)}</div>`:''}</div>`)); }
 
   if(state.image){
     main.appendChild(h(`<img class="thumb" src="data:${state.image.mime};base64,${state.image.data}">`));
@@ -460,7 +462,7 @@ function viewHome(){
 }
 
 function viewLoading(){
-  return h(`<div class="loading"><div class="spin"></div><p>A Hűtő Mágus most nézi át, mi lapul a polcokon…</p></div>`);
+  return h(`<div class="loading"><div class="spin"></div><p>A Hűtő Mágus most nézi át, mi lapul a polcokon…</p><p id="loadMsg" style="font-size:12px;color:#9A8370;">${state.status||''}</p></div>`);
 }
 
 function viewRecipe(){
@@ -487,7 +489,7 @@ function viewRecipe(){
 }
 
 async function generateRecipe(){
-  state.loading = true; state.error=''; render();
+  state.loading = true; state.error=''; state.errDetail=''; state.status='Kapcsolódás a Google-hez…'; render();
   const key = store.get('hm_apikey');
   const parts = [];
   if(state.image) parts.push({inline_data:{mime_type:state.image.mime, data:state.image.data}});
@@ -512,19 +514,28 @@ Válaszolj KIZÁRÓLAG a következő JSON formátumban, más szöveg nélkül:
     };
     let models = await gemEnsureModels(key, false);
     let r, data, last=null, tried=0, refreshed=false;
-    for(let i=0; i<models.length && tried<4; i++){
-      tried++;
-      try{ ({r, d:data} = await call(models[i])); }
-      catch(e){ last = {status:0}; continue; }           // időtúllépés: következő modell
-      if(r.ok) break;
-      last = {status:r.status, data};
-      if(r.status===404 && !refreshed){ refreshed=true; models = await gemEnsureModels(key, true); i=-1; tried=0; continue; }
-      if([500,502,503,504,404].includes(r.status)){       // túlterhelés/hiba: kis várakozás, következő modell
-        await new Promise(res=>setTimeout(res, 1500));
-        continue;
+    const log = [];
+    const t0 = Date.now();
+    const tick = setInterval(()=>{ if(state.status) setStatus(state.status.replace(/ · \d+ mp$/,'') + ' · ' + Math.round((Date.now()-t0)/1000) + ' mp'); }, 1000);
+    try{
+      for(let i=0; i<models.length && tried<3; i++){
+        tried++;
+        setStatus(`Próbálkozás ${tried}/3 · ${models[i]}`);
+        const ta = Date.now();
+        try{ ({r, d:data} = await call(models[i])); }
+        catch(e){ last = {status:0}; log.push(`${models[i]}: nincs válasz (${Math.round((Date.now()-ta)/1000)} mp)`); continue; }
+        if(r.ok) break;
+        last = {status:r.status, data};
+        log.push(`${models[i]}: ${r.status} ${(data&&data.error&&data.error.message||'').slice(0,160)} (${Math.round((Date.now()-ta)/1000)} mp)`);
+        if(r.status===404 && !refreshed){ refreshed=true; models = await gemEnsureModels(key, true); i=-1; tried=0; continue; }
+        if([500,502,503,504,404].includes(r.status)){
+          await new Promise(res=>setTimeout(res, 1500));
+          continue;
+        }
+        break;
       }
-      break;                                             // kulcshiba, kvóta stb.: nincs értelme újrapróbálni
-    }
+    } finally { clearInterval(tick); }
+    state.errDetail = log.join(' | ');
     if(!r || !r.ok){
       state.error = (last && last.status===0)
         ? 'A Google most nem válaszolt időben. Próbáld újra egy perc múlva (kisebb kép vagy kevesebb hozzávaló is segíthet).'
@@ -536,7 +547,7 @@ Válaszolj KIZÁRÓLAG a következő JSON formátumban, más szöveg nélkül:
     state.recipe = JSON.parse(txt);
   }catch(e){
     if(e && e.gem){ state.error = gemExplain(e.status, e.data); state.loading=false; render(); return; }
-    state.error = 'Valami elakadt. Ellenőrizd az internetkapcsolatot, és próbáld újra.';
+    state.error = 'Valami elakadt. Próbáld újra.'; state.errDetail = 'kivétel: ' + (e && e.message ? e.message : e);
   }
   state.loading = false; render();
 }
