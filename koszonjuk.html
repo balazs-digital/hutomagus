@@ -4,11 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Köszönjük! – Hűtő Mágus</title>
-<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Lora:ital,wght@0,500;0,600;1,500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800&family=Lora:ital,wght@0,500;0,600;1,500&display=swap" rel="stylesheet">
 <style>
 :root{--paprika:#E05638;--cream:#FBF1E4;--plum:#3A2418;--plate:#FDE3C8;--herb:#6B8E4E;}
 *{box-sizing:border-box;}
-body{margin:0;background:var(--cream);color:var(--plum);font-family:'Fredoka',sans-serif;line-height:1.6;}
+body{margin:0;background:var(--cream);color:var(--plum);font-family:'Nunito',sans-serif;line-height:1.6;}
 .wrap{max-width:480px;margin:0 auto;padding:40px 20px 60px;text-align:center;}
 .badge{width:80px;height:80px;border-radius:50%;background:var(--herb);display:flex;align-items:center;justify-content:center;margin:0 auto 18px;font-size:38px;}
 h1{font-family:'Lora',serif;font-style:italic;font-size:26px;margin:0 0 10px;}
@@ -25,19 +25,23 @@ p{font-size:15px;color:#4A3627;}
 <div class="wrap">
   <div class="badge">🧊</div>
   <h1>Köszönjük, hogy a Hűtő Mágust választottad!</h1>
-  <p>A vásárlást visszaigazoló e-mailt elküldtük a megadott címre — benne a saját licenckódoddal.</p>
+  <p>Az aktiváló kódodat és az aktiváló linket e-mailben küldöm a megadott címre, általában pár órán belül, de legkésőbb 2 munkanapon belül.</p>
 
   <div class="card">
-    <p><b>Nem találod a levelet?</b> Nézd meg a spam / promóciók mappát is. Ha pár percen belül sem érkezik meg, írj nekünk: <a href="mailto:[email]">[email]</a></p>
+    <p><b>Nem találod a levelet?</b> Nézd meg a spam / promóciók mappát is. Ha a fenti időn belül sem érkezik meg, írj nekem<span id="mailTxt">, válaszolj a vásárlásról kapott visszaigazolásra</span>.</p>
   </div>
 
   <ol class="steps">
-    <li>Nyisd meg a Hűtő Mágust, és illeszd be a licenckódodat</li>
-    <li>Kövesd a rövid varázslót az ingyenes AI-kulcs beállításához (2 perc, egyszer kell)</li>
+    <li>Nyisd meg a levelet a telefonodon, és koppints az <b>aktiváló linkre</b>: az app magától aktiválja a licencet. (Vagy az appban a „Licenc” résznél add meg az e-mail címedet és a kódot.)</li>
+    <li>Ha még nem tetted, kövesd a rövid varázslót az ingyenes AI-kulcs beállításához (2 perc, egyszer kell)</li>
     <li>Fotózd le a hűtőd, és kész is az első recepted</li>
   </ol>
 
   <a class="btn" href="index.html">Megnyitom a Hűtő Mágust →</a>
 </div>
+<script src="config.js"></script>
+<script>
+(function(){try{var e=(window.HM_CFG||{}).SUPPORT_EMAIL;if(e){var s=document.getElementById('mailTxt');s.textContent=': ';var a=document.createElement('a');a.href='mailto:'+e;a.textContent=e;s.appendChild(a);}}catch(x){}})();
+</script>
 </body>
 </html>
