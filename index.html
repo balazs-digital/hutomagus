@@ -47,7 +47,8 @@ main{flex:1;padding:0 20px 40px;}
 .step-dots{display:flex;gap:6px;margin-bottom:6px;}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--line);}
 .dot.on{background:var(--paprika);}
-input[type=text],input[type=password]{
+input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=hidden]){
+  box-sizing:border-box;-webkit-appearance:none;appearance:none;
   width:100%;padding:14px 16px;border-radius:14px;border:2px solid var(--line);
   font-family:'Nunito',sans-serif;font-size:16px;background:#fff;color:var(--plum);}
 input:focus{outline:none;border-color:var(--paprika);}
